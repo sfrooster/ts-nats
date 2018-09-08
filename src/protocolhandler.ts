@@ -19,7 +19,7 @@ import {
     defaultSub,
     FlushCallback,
     Msg,
-    NatsConnectionOptions,
+    NatsConnectionOptions, NKeyAuthChallenge,
     Payload,
     Req,
     ServerInfo,
@@ -648,6 +648,9 @@ export class ProtocolHandler extends EventEmitter {
                         if(this.checkNoEchoMismatch()) {
                             return;
                         }
+
+                        let challengeResponse = this.handleChallenge();
+
                         // Always try to read the connect_urls from info
                         let change = this.servers.processServerUpdate(this.info);
                         if (change.deleted.length > 0 || change.added.length > 0) {
@@ -667,7 +670,9 @@ export class ProtocolHandler extends EventEmitter {
                             }
 
                             // Send the connect message and subscriptions immediately
-                            let cs = JSON.stringify(new Connect(this.options));
+                            let connect = new Connect(this.options);
+                            connect.setChallegeResponse(challengeResponse);
+                            let cs = JSON.stringify(connect);
                             this.transport.write(`${CONNECT} ${cs}${CR_LF}`);
                             this.sendSubscriptions();
                             this.pongs.unshift(() => {
@@ -748,6 +753,15 @@ export class ProtocolHandler extends EventEmitter {
             return true;
         }
         return false;
+    }
+
+    private handleChallenge(): (NKeyAuthChallenge | undefined) {
+        if(this.options.nkeyChallegeCallback && this.info.nonce) {
+            if(typeof this.options.nkeyChallegeCallback === 'function') {
+                return this.options.nkeyChallegeCallback(this.info.nonce)
+            }
+        }
+        return undefined;
     }
 
     /**
@@ -1050,6 +1064,8 @@ export class Connect {
     auth_token?: string;
     name?: string;
     echo?: boolean;
+    nkey?: string;
+    sig?: string;
 
     constructor(opts?: NatsConnectionOptions) {
         opts = opts || {} as NatsConnectionOptions;
@@ -1072,6 +1088,13 @@ export class Connect {
         }
         if (opts.noEcho) {
             this.echo = false;
+        }
+    }
+
+    setChallegeResponse(response?: NKeyAuthChallenge) {
+        if(response && response.nkey && Buffer.isBuffer(response.sig)) {
+            this.nkey = response.nkey;
+            this.sig = response.sig.toString('base64');
         }
     }
 }

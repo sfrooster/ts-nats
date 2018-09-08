@@ -64,6 +64,7 @@ export interface ServerInfo {
     server_id: string;
     version: string;
     echo?: boolean;
+    nonce?: string;
 }
 
 /** Argument provided to `subscribe` and `unsubscribe` event handlers. */
@@ -169,6 +170,16 @@ export interface MsgCallback {
     (err: NatsError | null, msg: Msg): void;
 }
 
+export interface NKeyAuthChallenge {
+    sig: Buffer;
+    nkey: string;
+}
+
+/** A callback to be invoked when a nonce is presented to the client for authentication */
+export interface NKeyAuthChallengeCallback {
+    (nonce: string): NKeyAuthChallenge;
+}
+
 /** Additional options that can be provided to [[Client.subscribe]]. */
 export interface SubscriptionOptions {
     /** Name of the queue group for the subscription */
@@ -227,6 +238,8 @@ export interface NatsConnectionOptions {
     waitOnFirstConnect?: boolean;
     /** Specifies the max amount of time the client is allowed to process inbound messages before yielding for other IO tasks. When exceeded the client will yield. */
     yieldTime?: number;
+    /** Specifies a function callback that will be invoked if the server info presents a nonce. */
+    nkeyChallegeCallback?: NKeyAuthChallengeCallback;
 }
 
 /** @hidden */
