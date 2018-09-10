@@ -175,9 +175,30 @@ export interface NKeyAuthChallenge {
     nkey: string;
 }
 
+/** Signs the provided data with an NKey. Returns a buffer with the signature. */
+export interface ChallengeSigner {
+    (data: Buffer): Promise<Buffer>;
+}
+
+/** Returns a string providing ACL. Typically ACLs will be in form of a JWT token. */
+export interface AccessControlProvider {
+    (): Promise<string>;
+}
+
+/** Returns an identifier for the client. Typically this will be the public key used by the [[ChallengeSigner]] */
+export interface Identifier {
+    (): Promise<string>;
+}
+
+/** An object provided by the client for working with JWT and/Nonce based authentication. */
+export interface AuthHandler {
+    sign: ChallengeSigner;
+    id: Identifier;
+}
+
 /** A callback to be invoked when a nonce is presented to the client for authentication */
 export interface NKeyAuthChallengeCallback {
-    (nonce: string): NKeyAuthChallenge;
+    (nonce: string): Promise<NKeyAuthChallenge>;
 }
 
 /** Additional options that can be provided to [[Client.subscribe]]. */
@@ -238,8 +259,8 @@ export interface NatsConnectionOptions {
     waitOnFirstConnect?: boolean;
     /** Specifies the max amount of time the client is allowed to process inbound messages before yielding for other IO tasks. When exceeded the client will yield. */
     yieldTime?: number;
-    /** Specifies a function callback that will be invoked if the server info presents a nonce. */
-    nkeyChallegeCallback?: NKeyAuthChallengeCallback;
+    /** Specifies an object that provides callbacks used for JWT and nonce authentication. */
+    authHandler?: AuthHandler;
 }
 
 /** @hidden */

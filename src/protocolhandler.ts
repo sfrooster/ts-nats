@@ -15,11 +15,13 @@
  */
 
 import {
+    AuthHandler,
     Client,
     defaultSub,
     FlushCallback,
     Msg,
-    NatsConnectionOptions, NKeyAuthChallenge,
+    NatsConnectionOptions,
+    NKeyAuthChallenge,
     Payload,
     Req,
     ServerInfo,
@@ -59,13 +61,8 @@ const MSG = /^MSG\s+([^\s\r\n]+)\s+([^\s\r\n]+)\s+(([^\s\r\n]+)[^\S\r\n]+)?(\d+)
 
 
     // Protocol
-    //PUB     = 'PUB', // TODO: remove / never used
     SUB = 'SUB',
     CONNECT = 'CONNECT',
-
-    // Responses
-    PING_REQUEST = 'PING' + CR_LF,
-    PONG_RESPONSE = 'PONG' + CR_LF,
 
     FLUSH_THRESHOLD = 65536;
 
@@ -584,7 +581,7 @@ export class ProtocolHandler extends EventEmitter {
      *
      * @api private
      */
-    private processInbound(): void {
+    private async processInbound() {
         // Hold any regex matches.
         let m;
 
@@ -649,7 +646,10 @@ export class ProtocolHandler extends EventEmitter {
                             return;
                         }
 
-                        let challengeResponse = this.handleChallenge();
+                        let challengeResponse: (NKeyAuthChallenge | undefined) = undefined;
+                        if (this.handlesChallenge()) {
+                            challengeResponse = await this.handleChallenge();
+                        }
 
                         // Always try to read the connect_urls from info
                         let change = this.servers.processServerUpdate(this.info);
@@ -671,7 +671,9 @@ export class ProtocolHandler extends EventEmitter {
 
                             // Send the connect message and subscriptions immediately
                             let connect = new Connect(this.options);
-                            connect.setChallegeResponse(challengeResponse);
+                            if (challengeResponse) {
+                                connect.setChallegeResponse(challengeResponse);
+                            }
                             let cs = JSON.stringify(connect);
                             this.transport.write(`${CONNECT} ${cs}${CR_LF}`);
                             this.sendSubscriptions();
@@ -755,13 +757,21 @@ export class ProtocolHandler extends EventEmitter {
         return false;
     }
 
-    private handleChallenge(): (NKeyAuthChallenge | undefined) {
-        if(this.options.nkeyChallegeCallback && this.info.nonce) {
-            if(typeof this.options.nkeyChallegeCallback === 'function') {
-                return this.options.nkeyChallegeCallback(this.info.nonce)
-            }
+
+    private handlesChallenge(): boolean {
+        let ah: (AuthHandler | undefined) = this.options.authHandler;
+        //@ts-ignore
+        return ah && typeof ah.sign === 'function' && this.info.nonce != undefined;
+    }
+
+    private async handleChallenge(): Promise<NKeyAuthChallenge> {
+        let ah: (AuthHandler | undefined) = this.options.authHandler;
+        if (ah && ah.id && this.info.nonce != undefined) {
+            let values = await Promise.all([ah.sign(Buffer.from(this.info.nonce)), ah.id()]);
+            return Promise.resolve({sig: values[0], nkey: values[1]} as NKeyAuthChallenge);
+        } else {
+            return Promise.reject(undefined);
         }
-        return undefined;
     }
 
     /**
@@ -1091,7 +1101,7 @@ export class Connect {
         }
     }
 
-    setChallegeResponse(response?: NKeyAuthChallenge) {
+    setChallegeResponse(response: NKeyAuthChallenge) {
         if(response && response.nkey && Buffer.isBuffer(response.sig)) {
             this.nkey = response.nkey;
             this.sig = response.sig.toString('base64');
